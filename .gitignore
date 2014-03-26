@@ -1,0 +1,10 @@
+/.ch*
+/.ex*
+/.pr*
+/.py*
+/.se*
+/build/
+/build_xcopy.cmd
+/xcopy_exclude.txt
+/open_console_rewrite.cmd
+/bot/user-config.py
