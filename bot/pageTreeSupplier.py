@@ -118,60 +118,71 @@ class pageTreeSupplier:
                     return False #exit function without save
         page.text = content
         page.save(comment=comment, minor=False)
-
-    def generatePageTree(self, nsID, prefix = "", options = ""):
-        prefix = prefix.strip()
-        add_prefix = ''
+        
+    def readOptions(self, optionsString = ""):
+        option = object()
+        option.gen_redirects = True
+        option.nesting = None
+        option.stripprefix = False
+        option.add_prefix = ""
         
         'redirects=([\d])'
-        option_redirects = self.re_option_redirects.search(options)
-        if option_redirects == None:
-            option_redirects = '1'
+        redirects = self.re_option_redirects.search(optionsString)
+        if redirects == None:
+            redirects = '1'
         else:
-            option_redirects = option_redirects.group(1)
+            redirects = redirects.group(1)
             
-        'nesting=([\d]+)'
-        option_nesting = self.re_option_nesting.search(options)
-        if option_nesting != None:
-            option_nesting = option_nesting.group(1)
-            if not option_nesting.isdigit(): #shouldn't happing b/c regexp match on [\d]+
-                raise self.workOnPageException("ERROR: nesting is not a non-negative integer")
-            option_nesting = int(option_nesting)
-        
-        'stripprefix=([\d])'
-        option_stripprefix = self.re_option_stripprefix.search(options)
-        if option_stripprefix == None:
-            option_stripprefix = '0'
-        else:
-            option_stripprefix = option_stripprefix.group(1)
-        
-        #Convert option_redirects
-        gen_redirects = True
-        if option_redirects == '0':
-            gen_redirects = False
-        elif option_redirects == '1':
-            gen_redirects = True
-        elif option_redirects == '2':
-            gen_redirects = 'only'
+        #Convert redirects
+        option.gen_redirects = True
+        if redirects == '0':
+            option.gen_redirects = False
+        elif redirects == '1':
+            option.gen_redirects = True
+        elif redirects == '2':
+            option.gen_redirects = 'only'
         else:
             raise self.workOnPageException('ERROR: invalid option for "redirects"')
+            
+        'nesting=([\d]+)'
+        nesting = self.re_option_nesting.search(optionsString)
+        if nesting != None:
+            nesting = nesting.group(1)
+            if not nesting.isdigit(): #shouldn't happing b/c regexp match on [\d]+
+                raise self.workOnPageException("ERROR: nesting is not a non-negative integer")
+            option.nesting = int(nesting)
         
-        #Convert option_stripprefix
-        if option_stripprefix == '0':
-            option_stripprefix = False
-        elif option_stripprefix == '1':
-            option_stripprefix = True
-        elif option_stripprefix == '2':
+        
+        'stripprefix=([\d])'
+        stripprefix = self.re_option_stripprefix.search(optionsString)
+        if stripprefix == None:
+            stripprefix = '0'
+        else:
+            stripprefix = stripprefix.group(1)
+        
+        #Convert stripprefix
+        if stripprefix == '0':
+            option.stripprefix = False
+        elif stripprefix == '1':
+            option.stripprefix = True
+        elif stripprefix == '2':
             #for PerfektesChaos: if stripped, must start with slash
-            option_stripprefix = True
-            add_prefix = '/'
+            option.stripprefix = True
+            option.add_prefix = '/'
         else:
             raise self.workOnPageException('ERROR: invalid option for "stripprefix"')
         
+        return option
+
+    def generatePageTree(self, nsID, prefix = "", optionsString = ""):
+        prefix = prefix.strip()
+        
+        option = self.readOptions(optionsString)
+        
         if prefix == "":
-            generator = pagegenerators.AllpagesPageGenerator(site=self.site, namespace=nsID, includeredirects=gen_redirects)
+            generator = pagegenerators.AllpagesPageGenerator(site=self.site, namespace=nsID, includeredirects=option.gen_redirects)
         else:
-            generator = pagegenerators.PrefixingPageGenerator(site=self.site, prefix=prefix, namespace=nsID, includeredirects=gen_redirects)
+            generator = pagegenerators.PrefixingPageGenerator(site=self.site, prefix=prefix, namespace=nsID, includeredirects=option.gen_redirects)
             
         
         import datetime
@@ -179,14 +190,14 @@ class pageTreeSupplier:
         pages = []
         #: :type page: pywikibot.Page
         for page in generator:
-            if option_nesting != None:
-                if page.title().count('/') > option_nesting-1:
+            if option.nesting != None:
+                if page.title().count('/') > option.nesting-1:
                     # page to deep
                     continue
             
-            if option_stripprefix:
+            if option.stripprefix:
                 title = page.title(withNamespace=False)
-                title = add_prefix+title.replace(prefix,"",1)
+                title = option.add_prefix+title.replace(prefix,"",1)
             else:
                 title = page.title(); 
             pages.append('"'+title+'"')
