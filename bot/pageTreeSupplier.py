@@ -32,11 +32,13 @@ class pageTreeSupplier:
     re_option_redirects = re.compile(r"redirects=([\d])")
     re_option_nesting = re.compile(r"nesting=([\d]+)")
     re_option_stripprefix = re.compile(r"stripprefix=([\d])")
+    re_option_targets = re.compile(r"targets=([\d]+)")
     re_modulepage_head = re.compile(r"[\s\S]*\n-- BOT-START[ \r]*$", re.MULTILINE)
     
-    def run(self, confirmEdit = True):
+    def run(self, confirmEdit = True, sandbox = False):
         self.confirmEdit = confirmEdit
         self.site = pywikibot.Site('de', 'wikipedia');
+        self.sandbox = sandbox
         
         liste = self.selectWorkOn()
         for page in liste:
@@ -48,6 +50,9 @@ class pageTreeSupplier:
     def selectWorkOn(self):
         ':rtype list'
         liste = list()
+        if self.sandbox:
+            liste.append(pywikibot.Page(self.site, "Benutzer:Se4598/test2", 2))
+            return liste
         gen = pagegenerators.PrefixingPageGenerator("Modul:PageTree/", None, True, site=self.site)
         #: :type page: pywikibot.Page
         for page in gen:
@@ -81,7 +86,7 @@ class pageTreeSupplier:
                 raise self.workOnPageException("ERROR: page doesn't have a BOT-START-mark")
             wikitext_head = head.group(0)
             wikitext_head = wikitext_head.replace("@Efenbot@","@EfenBot@") ### MIGRATION --- remove after running
-            wikitext_body = self.generatePageTree(nsID=ns, prefix=prefix, options=options)
+            wikitext_body = self.generatePageTree(nsID=ns, prefix=prefix, optionsString=options)
             
             wikitext = wikitext_head + "\n" + wikitext_body
             comment = u"Bot: Liste aktualisiert"
@@ -119,8 +124,11 @@ class pageTreeSupplier:
         page.text = content
         page.save(comment=comment, minor=False)
         
+    class Options(object):
+        pass # just to randomly set options here
+    
     def readOptions(self, optionsString = ""):
-        option = object()
+        option = pageTreeSupplier.Options()
         option.gen_redirects = True
         option.nesting = None
         option.stripprefix = False
@@ -172,35 +180,64 @@ class pageTreeSupplier:
         else:
             raise self.workOnPageException('ERROR: invalid option for "stripprefix"')
         
+        'targets=([\d]+)'
+        targets = self.re_option_targets.search(optionsString)
+        if targets == None:
+            targets = '0'
+        else:
+            targets = targets.group(1)
+            
+        if targets == '0':
+            option.targets = False;
+        elif targets == '1':
+            option.targets = True
+        else:
+            raise self.workOnPageException('ERROR: invalid option for "targets"')
+        
         return option
 
     def generatePageTree(self, nsID, prefix = "", optionsString = ""):
         prefix = prefix.strip()
         
         option = self.readOptions(optionsString)
+        option.prefix = prefix
         
-        if prefix == "":
+        if option.prefix == "":
             generator = pagegenerators.AllpagesPageGenerator(site=self.site, namespace=nsID, includeredirects=option.gen_redirects)
         else:
-            generator = pagegenerators.PrefixingPageGenerator(site=self.site, prefix=prefix, namespace=nsID, includeredirects=option.gen_redirects)
+            generator = pagegenerators.PrefixingPageGenerator(site=self.site, prefix=option.prefix, namespace=nsID, includeredirects=option.gen_redirects)
             
         
         import datetime
-        timestamp = datetime.datetime.now().isoformat()         
+        timestamp = datetime.datetime.now().isoformat()
+        redirectpages = dict() # to fill if "targets=1"
         pages = []
+        
+        if option.targets:
+            if option.prefix == "":
+                genRedirect = pagegenerators.AllpagesPageGenerator(site=self.site, namespace=nsID, includeredirects='only')
+            else:
+                genRedirect = pagegenerators.PrefixingPageGenerator(site=self.site, prefix=option.prefix, namespace=nsID, includeredirects='only')
+            #: :type page: pywikibot.Page
+            for page in genRedirect:
+                pywikibot.output('Getting target for: '+self.getTitle(page, option));
+                targetPage = page.getRedirectTarget() #could throw IsNotRedirectPage but we're only querying redirects. BUT race-conditions...
+                redirectpages[self.getTitle(page, option)] = self.getTitle(targetPage, option) 
+                
         #: :type page: pywikibot.Page
         for page in generator:
             if option.nesting != None:
                 if page.title().count('/') > option.nesting-1:
                     # page to deep
                     continue
-            
-            if option.stripprefix:
-                title = page.title(withNamespace=False)
-                title = option.add_prefix+title.replace(prefix,"",1)
+            title = self.getTitle(page, option)
+            if not option.targets or self.getTitle(page, option) not in redirectpages:
+                pages.append('"'+title+'"')
             else:
-                title = page.title(); 
-            pages.append('"'+title+'"')
+                #options.targets AND in redirectpages
+                text = '{ seed="'+title+'", shift="'+redirectpages.get(title)+'" }'
+                pages.append(text)
+                pass
         pass
 
         luaText  = 'return {'+"\n"
@@ -211,21 +248,31 @@ class pageTreeSupplier:
         luaText += '};'+"\n"
         
         return luaText
-    
+    def getTitle(self, page, option):
+        if option.stripprefix:
+            title = page.title(withNamespace=False)
+            title = option.add_prefix+title.replace(option.prefix,"",1)
+        else:
+            title = page.title()
+        return title
+        pass
     
 if __name__ == "__main__":
     try:
         pywikibot.output("PageTreeSupplier by se4598")
         botmode = False
+        sandbox = False
         for arg in pywikibot.handleArgs():
             if arg.startswith("-botmode"):
                 botmode = True
+            if arg.startswith("-sandbox"):
+                sandbox = True
             pass
         if botmode:
             pywikibot.output("running in botmode w/o confirm edit\n")
-            pageTreeSupplier().run(confirmEdit=False)
+            pageTreeSupplier().run(confirmEdit=False, sandbox=sandbox)
         else:
             pywikibot.output("Manual mode\n")
-            pageTreeSupplier().run(confirmEdit=True)
+            pageTreeSupplier().run(confirmEdit=True, sandbox=sandbox)
     finally:
         pywikibot.stopme()
