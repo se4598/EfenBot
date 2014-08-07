@@ -35,10 +35,11 @@ class pageTreeSupplier:
     re_option_targets = re.compile(r"targets=([\d]+)")
     re_modulepage_head = re.compile(r"[\s\S]*\n-- BOT-START[ \r]*$", re.MULTILINE)
     
-    def run(self, confirmEdit = True, sandbox = False):
+    def run(self, confirmEdit = True, sandbox = False, forceSave = False):
         self.confirmEdit = confirmEdit
         self.site = pywikibot.Site('de', 'wikipedia');
         self.sandbox = sandbox
+        self.forceSave = forceSave
         
         liste = self.selectWorkOn()
         for page in liste:
@@ -99,9 +100,12 @@ class pageTreeSupplier:
         
     def savePage(self, page, content, comment):
         ':param Page page:'
-        if self.confirmEdit:
-            pywikibot.output(u">>> \03{lightpurple}%s\03{default} <<<"
+        pywikibot.output(u">>> \03{lightpurple}%s\03{default} <<<"
                              % page.title())
+        if not self.hasTextChanged(page.text, content) and not self.forceSave:
+            pywikibot.output('Nothing changed, skipping save...')
+            return
+        if self.confirmEdit:
             # show what was changed
             pywikibot.output('Diffing old and new pagetext...:')
             pywikibot.showDiff(page.text, content)
@@ -123,6 +127,15 @@ class pageTreeSupplier:
                     return False #exit function without save
         page.text = content
         page.save(comment=comment, minor=False)
+    
+    def hasTextChanged(self, oldContent, newContent):
+        stampRE = re.compile("^stamp *= *.*", re.MULTILINE)
+        stripLastRE = re.compile("\n+$") #strip last linebreaks as they're autmmatically stripped on wiki
+        oldContent2 = stampRE.sub("", oldContent)
+        newContent2 = stampRE.sub("", newContent)
+        oldContent2 = stripLastRE.sub("", oldContent2)
+        newContent2 = stripLastRE.sub("", newContent2)
+        return oldContent2 != newContent2
         
     class Options(object):
         pass # just to randomly set options here
