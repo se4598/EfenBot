@@ -32,7 +32,8 @@ class pageTreeSupplier:
     re_option_redirects = re.compile(r"redirects=([\d])")
     re_option_nesting = re.compile(r"nesting=([\d]+)")
     re_option_stripprefix = re.compile(r"stripprefix=([\d])")
-    re_option_targets = re.compile(r"targets=([\d]+)")
+    re_option_targets = re.compile(r"targets=([\d])")
+    re_option_restrictions = re.compile(r"protections=([\d])")
     re_modulepage_head = re.compile(r"[\s\S]*\n-- BOT-START[ \r]*$", re.MULTILINE)
     
     def run(self, confirmEdit = True, sandbox = False, forceSave = False):
@@ -112,7 +113,7 @@ class pageTreeSupplier:
             pywikibot.output(u'Comment: %s' % comment)
             #pywikibot.output(u'Page: %s' %page.title(asLink=True))
             while True:
-                choice = pywikibot.inputChoice(
+                choice = pywikibot.inputChoice( # TODO: inputChoice deprecated
                 u'Do you want to accept these changes?',
                 ['Yes', 'No', 'Show all'], ['y', 'N', 'a'], 'N')
                 choice.lower() # make choice lowercase
@@ -146,6 +147,7 @@ class pageTreeSupplier:
         option.nesting = None
         option.stripprefix = False
         option.add_prefix = ""
+        option.protections = False
         
         'redirects=([\d])'
         redirects = self.re_option_redirects.search(optionsString)
@@ -193,7 +195,7 @@ class pageTreeSupplier:
         else:
             raise self.workOnPageException('ERROR: invalid option for "stripprefix"')
         
-        'targets=([\d]+)'
+        'targets=([\d])'
         targets = self.re_option_targets.search(optionsString)
         if targets == None:
             targets = '0'
@@ -201,11 +203,25 @@ class pageTreeSupplier:
             targets = targets.group(1)
             
         if targets == '0':
-            option.targets = False;
+            option.targets = False
         elif targets == '1':
             option.targets = True
         else:
             raise self.workOnPageException('ERROR: invalid option for "targets"')
+        
+        'protections=([\d])'
+        protections = self.re_option_restrictions.search(optionsString)
+        if protections  == None:
+            protections  = '0'
+        else:
+            protections = protections.group(1)
+            
+        if protections == '0':
+            option.protections = False
+        elif protections == '1':
+            option.protections = True
+        else:
+            raise self.workOnPageException('ERROR: invalid option for "protections"')
         
         return option
 
@@ -244,21 +260,38 @@ class pageTreeSupplier:
                     # page to deep
                     continue
             title = self.getTitle(page, option)
-            if not option.targets or self.getTitle(page, option) not in redirectpages:
-                pages.append('"'+title+'"')
-            else:
-                #options.targets AND in redirectpages
-                text = '{ seed="'+title+'", shift="'+redirectpages.get(title)+'" }'
-                pages.append(text)
-                pass
-        pass
+            
+            isRedirect = False
+            isProtected = False
+            
+            if option.targets and self.getTitle(page, option) in redirectpages:
+                isRedirect = True
+            
+            if option.protections:    
+                protectionDict = page.protection()
+                protections = []
+                for t in protectionDict: # t=type, dict: key=type val=(level,expiry)
+                    isProtected = True
+                    protections.append(t+"="+protectionDict[t][0])
+            
+            text = '"'+title+'"'
+            if isRedirect or isProtected:
+                text = '{ seed="'+title+'"'
+                if isRedirect:
+                    text += ', shift="'+redirectpages.get(title)+'"'
+                if isProtected:
+                    text += ', protection="'+':'.join(protections)+'"'
+                text += ' }'
+                
+            pages.append(text)
+        pass # END for page in generator
 
         luaText  = 'return {'+"\n"
         luaText += 'stamp = "'+timestamp+'",  -- [[User:EfenBot]]'+"\n"
         luaText += 'pages = {'+"\n"
         luaText += ",\n".join(pages) +"\n" #Liste der Seiten
         luaText += '}    -- pages { }'+"\n"
-        luaText += '};'+"\n"
+        luaText += '};' #+"\n"
         
         return luaText
     def getTitle(self, page, option):
